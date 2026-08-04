@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Hand Scrubber v45</title>
+
+<style>
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: white;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+#container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+}
+
+#canvas-wrap {
+  width: 100%;
+  max-width: 1800px;
+  position: relative;
+  transform: scale(0.75) scaleY(-1) translateY(-15%);
+  transform-origin: center center;
+}
+
+/* VIDEO LAYER */
+
+video {
+  width: 100%;
+  display: block;
+  background: white;
+  opacity: 0.45;
+  filter: contrast(0.7) brightness(1.45) grayscale(1);
+  transition: opacity 3.2s ease;
+}
+
+#loop-video,
+#outro-video {
+  display: none;
+}
+
+
+/* GRAIN */
+
+#grain-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.22;
+  mix-blend-mode: overlay;
+}
+
+
+/* HOTSPOTS */
+
+#hotspot-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.hotspot {
+  position: absolute;
+
+  font-size: 22px;
+  letter-spacing: 0.04em;
+
+  color: #888888;
+
+  text-decoration: underline;
+  text-decoration-color: rgba(136,136,136,0.4);
+  text-underline-offset: 3px;
+
+  cursor: pointer;
+
+  transform:
+    translate(-50%, -50%)
+    scaleY(-1);
+
+  white-space: nowrap;
+
+  transition:
+    color 0.2s ease,
+    opacity 0.35s ease;
+
+  pointer-events: auto;
+}
+
+
+.hotspot.phase-initial {
+  color: white;
+  text-decoration-color: rgba(255,255,255,0.5);
+}
+
+
+.hotspot:hover {
+  color: #534AB7;
+}
+
+
+/* NAME */
+
+#name {
+  padding: 15px;
+  font-size: 2em;
+  color: #888888;
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<div id="name">
+Steven KP
+</div>
+
+
+
+<div id="container">
+
+  <div id="canvas-wrap">
+
+
+    <!-- PLACEHOLDER VIDEOS -->
+    
+    <video id="intro-video" muted playsinline>
+      <source src="https://smvelazquez1.github.io/hand/MVI_9850_GODPLEASE_VP9.webm" type="video/mp4">
+    </video>
+
+
+    <video id="loop-video" muted playsinline loop>
+      <source src="https://smvelazquez1.github.io/hand/MVI_9850_COULDIT_VP9.webm" type="video/mp4">
+    </video>
+
+
+    <video id="outro-video" muted playsinline>
+      <source src="https://smvelazquez1.github.io/hand/MVI_9850_FINAL_VP9.webm" type="video/mp4">
+    </video>
+
+
+
+    <canvas id="grain-canvas"></canvas>
+
+
+    <div id="hotspot-layer"></div>
+
+
+  </div>
+
+</div><script>
+
+const intro = document.getElementById("intro-video");
+const loop = document.getElementById("loop-video");
+const outro = document.getElementById("outro-video");
+
+const hotspotLayer = document.getElementById("hotspot-layer");
+
+let destination = null;
+
+
+
+/*
+  HOTSPOT TIMING
+
+  These are now SECONDS instead of animation frames.
+
+  Example:
+  appearAt: 5
+  reappearAt: 10
+
+  means:
+  show hotspot after 5 seconds
+  keep it visible until 10 seconds
+
+  Adjust these once you know your new LOOP video timing.
+*/
+
+
+const HOTSPOTS = [
+
+{
+  id: "hotspot1",
+
+  initialLabel: "Lorem Ipsum",
+  finalLabel: "Work",
+
+  href: "#",
+
+  appearAt: 5,
+  reappearAt: 10,
+
+  initialX: 0.466,
+  initialY: 0.487,
+
+  finalX: 0.429,
+  finalY: 0.876
+},
+
+
+{
+  id: "hotspot2",
+
+  initialLabel: "Lorem Ipsum",
+  finalLabel: "Writing",
+
+  href: "#",
+
+  appearAt: 10,
+  reappearAt: 15,
+
+  initialX: 0.466,
+  initialY: 0.487,
+
+  finalX: 0.552,
+  finalY: 0.763
+},
+
+
+{
+  id: "hotspot3",
+
+  initialLabel: "Lorem Ipsum",
+  finalLabel: "About Me",
+
+  href: "#",
+
+  appearAt: 15,
+  reappearAt: 21,
+
+  initialX: 0.466,
+  initialY: 0.487,
+
+  finalX: 0.39,
+  finalY: 0.546
+},
+
+
+{
+  id: "hotspot4",
+
+  initialLabel: "Lorem Ipsum",
+  finalLabel: "Contact Me",
+
+  href: "#",
+
+  appearAt: 21,
+  reappearAt: 27,
+
+  initialX: 0.466,
+  initialY: 0.487,
+
+  finalX: 0.47,
+  finalY: 0.369
+}
+
+];
+
+
+
+
+
+/*
+ BUILD HOTSPOTS
+*/
+
+function buildHotspots(){
+
+  HOTSPOTS.forEach(h=>{
+
+    const link = document.createElement("a");
+
+    link.className = "hotspot";
+
+    link.textContent = h.initialLabel;
+
+
+    link.style.left =
+      (h.initialX * 100) + "%";
+
+    link.style.top =
+      (h.initialY * 100) + "%";
+
+
+    link.style.opacity = "0";
+
+
+    link.onclick = (event)=>{
+
+      event.preventDefault();
+
+      playOutro(h.href);
+
+    };
+
+
+    h.el = link;
+
+
+    hotspotLayer.appendChild(link);
+
+
+  });
+
+}
+
+
+
+
+
+/*
+ UPDATE HOTSPOTS BASED ON LOOP VIDEO TIME
+*/
+
+function updateHotspots(){
+
+  const currentTime = loop.currentTime;
+
+
+  HOTSPOTS.forEach(h=>{
+
+
+    if(
+      currentTime >= h.appearAt &&
+      currentTime <= h.reappearAt
+    ){
+
+      h.el.style.opacity = "1";
+
+      h.el.textContent = h.finalLabel;
+
+
+      h.el.style.left =
+        (h.finalX * 100) + "%";
+
+
+      h.el.style.top =
+        (h.finalY * 100) + "%";
+
+
+    }
+
+    else {
+
+
+      h.el.style.opacity = "0";
+
+
+    }
+
+
+  });
+
+
+  requestAnimationFrame(updateHotspots);
+
+}
+
+
+
+
+
+
+
+/*
+ INTRO → LOOP
+*/
+
+intro.onended = ()=>{
+
+
+  intro.style.display = "none";
+
+
+  loop.style.display = "block";
+
+
+  loop.play();
+
+
+};
+
+
+
+
+
+
+
+/*
+ LOOP → OUTRO
+*/
+
+function playOutro(url){
+
+
+  destination = url;
+
+
+  loop.pause();
+
+
+  loop.style.display = "none";
+
+
+  hotspotLayer.style.pointerEvents = "none";
+
+
+  outro.style.display = "block";
+
+
+  outro.play();
+
+
+}
+
+
+
+
+
+
+
+
+/*
+ OUTRO → PAGE
+*/
+
+outro.onended = ()=>{
+
+
+  if(destination && destination !== "#"){
+
+    window.location.href = destination;
+
+  }
+
+
+};
+
+
+
+
+
+
+
+
+/*
+ START
+*/
+
+
+buildHotspots();
+
+
+intro.play();
+
+
+updateHotspots();
+
+
+
+</script>
+
+
+</body>
+</html>
