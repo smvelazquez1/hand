@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hand Scrubber v44</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%;
+  height: 100%;
+  background: white;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+#container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  background: white;
+  position: relative;
+  padding-bottom: 0;
+}
+#canvas-wrap {
+  width: 100%;
+  max-width: 1800px;
+  position: relative;
+  transform: scale(0.75) scaleY(-1) translateY(-15%);
+  transform-origin: center center;
+}
+canvas#canvas {
+  width: 100%;
+  display: block;
+  background: white;
+  opacity: 0;
+  filter: contrast(0.7) brightness(1.45) grayscale(1);
+  transition: opacity 3.2s ease;
+}
+#grain-canvas {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  opacity: 0.22;
+  mix-blend-mode: overlay;
+}
+#hotspot-layer {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+.hotspot {
+  position: absolute;
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  color: rgba(136, 136, 136, .7);
+  text-decoration: underline;
+  text-decoration-color: rgba(136,136,136,0.4);
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transform: scaleY(-1);
+  white-space: nowrap;
+  transition: color 0.2s ease, opacity 0.35s ease;
+  pointer-events: auto;
+}
+.hotspot.phase-initial {
+  color: #ffffff;
+  text-decoration-color: rgba(255,255,255,0.5);
+}
+.hotspot:hover {
+  color: #534AB7;
+}
+#progress-bar {
+  width: 100%;
+  max-width: 1800px;
+  height: 1px;
+  background: #e0e0e0;
+  margin-top: 1.5rem;
+}
+#progress-fill {
+  height: 100%;
+  background: #bbb;
+  width: 0%;
+}
+#loading {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #ccc;
+  letter-spacing: 0.1em;
+}
+#load-text, #load-bar-wrap {
+  display: none;
+}
+#load-bar-wrap {
+  width: 200px;
+  height: 1px;
+  background: #e0e0e0;
+  margin-top: 1rem;
+}
+#load-bar {
+  height: 100%;
+  background: #bbb;
+  width: 0%;
+  transition: width 0.1s linear;
+}
+#name {
+  padding: 15px;
+  top: 0px;
+  margin-left: -1px;
+  font-size: 2em;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #888888;
+}
+</style>
+</head>
+<body>
+  <div id="name">Steven KP</div>
+<div id="loading">
+  <span id="load-text">loading...</span>
+  <div id="load-bar-wrap"><div id="load-bar"></div></div>
+</div>
+<div id="container" style="display:none;">
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+    <canvas id="grain-canvas"></canvas>
+    <div id="hotspot-layer"></div>
+  </div>
+  <div id="progress-bar"><div id="progress-fill"></div></div>
+</div>
+
+<script>
+const TOTAL = 801;
+const BASE = 'https://smvelazquez1.github.io/test/frame';
+const BATCH = 20;
+const HOTSPOT_FRAME = 300;
+const ACTIVATE_NEAR = 40;
+
+const HOTSPOTS = [
+  {
+    id: 'hotspot1', initialLabel: 'Work', finalLabel: 'Work', href: '#',
+    appearAt: 117, disappearAt: 129, reappearAt: 192,
+    initialX: 0.466, initialY: 0.487,
+    finalX: 0.429, finalY: 0.876
+  },
+  {
+    id: 'hotspot2', initialLabel: 'Writing', finalLabel: 'Writing', href: '#',
+    appearAt: 209, disappearAt: 223, reappearAt: 260,
+    initialX: 0.466, initialY: 0.487,
+    finalX: 0.552, finalY: 0.763
+  },
+  {
+    id: 'hotspot3', initialLabel: 'About Me', finalLabel: 'About Me', href: '#',
+    appearAt: 294, disappearAt: 310, reappearAt: 348,
+    initialX: 0.466, initialY: 0.487,
+    finalX: 0.39, finalY: 0.546,
+    hideDuringStart: 360, hideDuringEnd: 397
+  },
+  {
+    id: 'hotspot4', initialLabel: 'Contact Me', finalLabel: 'Contact Me', href: '#',
+    appearAt: 364, disappearAt: 397, reappearAt: 426,
+    initialX: 0.466, initialY: 0.487,
+    finalX: 0.47, finalY: 0.369
+  }
+];
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+const grainCanvas = document.getElementById('grain-canvas');
+const gctx = grainCanvas.getContext('2d', { willReadFrequently: true });
+const fill = document.getElementById('progress-fill');
+const loading = document.getElementById('loading');
+const container = document.getElementById('container');
+const loadBar = document.getElementById('load-bar');
+const loadText = document.getElementById('load-text');
+const hotspotLayer = document.getElementById('hotspot-layer');
+
+const frames = new Array(TOTAL);
+let loaded = 0;
+let currentFrame = 58;
+
+function pad(n) {
+  return String(n).padStart(4, '0');
+}
+
+const alphaMaskCache = new Array(TOTAL);
+
+function drawGrain(frameIndex) {
+  const w = grainCanvas.width;
+  const h = grainCanvas.height;
+  if (!w || !h) return;
+
+  let alphaMask = alphaMaskCache[frameIndex];
+  if (!alphaMask) {
+    const sourceData = ctx.getImageData(0, 0, w, h).data;
+    alphaMask = new Uint8ClampedArray(w * h);
+    for (let p = 0, px = 0; p < sourceData.length; p += 4, px++) {
+      alphaMask[px] = sourceData[p + 3] > 10 ? 255 : 0;
+    }
+    alphaMaskCache[frameIndex] = alphaMask;
+  }
+
+  const imageData = gctx.createImageData(w, h);
+  const data = imageData.data;
+  for (let i = 0, px = 0; i < data.length; i += 4, px++) {
+    const v = Math.random() * 255;
+    data[i] = v;
+    data[i+1] = v;
+    data[i+2] = v;
+    data[i+3] = alphaMask[px];
+  }
+  gctx.putImageData(imageData, 0, 0);
+}
+
+function buildHotspots() {
+  hotspotLayer.innerHTML = '';
+  HOTSPOTS.forEach(h => {
+    const link = document.createElement('a');
+    link.href = h.href || '#';
+    link.className = 'hotspot';
+    link.style.left = (h.initialX * 100) + '%';
+    link.style.top = (h.initialY * 100) + '%';
+    link.style.opacity = '0';
+    link.style.pointerEvents = 'none';
+    link.dataset.id = h.id;
+    link.draggable = false;
+    link.textContent = h.initialLabel;
+    h.el = link;
+    h.phase = 'hidden';
+
+    hotspotLayer.appendChild(link);
+  });
+}
+
+function updateHotspotVisibility() {
+  const frameNum = currentFrame + 1; // convert to 1-indexed display frame
+
+  HOTSPOTS.forEach(h => {
+    let phase;
+    if (frameNum < h.appearAt) {
+      phase = 'hidden';
+    } else if (frameNum >= h.appearAt && frameNum < h.disappearAt) {
+      phase = 'initial';
+    } else if (frameNum >= h.disappearAt && frameNum < h.reappearAt) {
+      phase = 'hidden';
+    } else {
+      phase = 'final';
+    }
+
+    if (phase === 'final' && h.hideDuringStart !== undefined &&
+        frameNum >= h.hideDuringStart && frameNum < h.hideDuringEnd) {
+      phase = 'temp-hidden';
+    }
+
+    if (phase !== h.phase) {
+      h.phase = phase;
+      if (phase === 'initial') {
+        h.el.style.left = (h.initialX * 100) + '%';
+        h.el.style.top = (h.initialY * 100) + '%';
+        h.el.style.opacity = '1';
+        h.el.style.pointerEvents = 'auto';
+        h.el.classList.add('phase-initial');
+      } else if (phase === 'final') {
+        h.el.style.left = (h.finalX * 100) + '%';
+        h.el.style.top = (h.finalY * 100) + '%';
+        h.el.style.opacity = '1';
+        h.el.style.pointerEvents = 'auto';
+        h.el.classList.remove('phase-initial');
+        h.el.textContent = h.finalLabel;
+      } else {
+        h.el.style.opacity = '0';
+        h.el.style.pointerEvents = 'none';
+      }
+    }
+  });
+}
+
+function drawFrame(i) {
+  const img = frames[i];
+  if (!img) return;
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  grainCanvas.width = img.naturalWidth;
+  grainCanvas.height = img.naturalHeight;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0);
+  drawGrain(i);
+  fill.style.width = ((i / (TOTAL - 1)) * 100) + '%';
+  updateHotspotVisibility();
+}
+
+function loadBatch(start) {
+  const end = Math.min(start + BATCH, TOTAL);
+  for (let i = start; i < end; i++) {
+    const img = new Image();
+    img.onerror = () => console.error('Failed to load:', img.src);
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      console.log('Loaded:', img.src);
+      loaded++;
+      loadBar.style.width = Math.round((loaded / TOTAL) * 100) + '%';
+      loadText.textContent = 'loading... ' + loaded + ' / ' + TOTAL;
+      if (loaded === 1) {
+        buildHotspots();
+        drawFrame(0);
+      }
+      if (loaded === 1) {
+        buildHotspots();
+        loading.style.display='none';
+        container.style.display='flex';
+        currentFrame=58;
+        drawFrame(58);
+        requestAnimationFrame(()=>canvas.style.opacity='0.45');
+      }
+      if (loaded===TOTAL){console.log('All frames loaded.');}
+    };
+    img.src = BASE + pad(i + 1) + '.png';
+    frames[i] = img;
+  }
+  if (end < TOTAL) {
+    setTimeout(() => loadBatch(end), 50);
+  }
+}
+
+loadBatch(0);
+
+const FPS = 22;
+const INITIAL_FRAME = 17;
+const LOOP_RESTART_FRAME = 568;
+const FRAME_DURATION = 1000 / FPS;
+let lastFrameTime = 0;
+
+function advanceFrame(timestamp) {
+  if (timestamp - lastFrameTime >= FRAME_DURATION) {
+    lastFrameTime = timestamp;
+    let next = currentFrame + 1;
+    if (next >= TOTAL) {
+      next = LOOP_RESTART_FRAME;
+    }
+    if (frames[next] && frames[next].complete) {
+      currentFrame = next;
+      drawFrame(next);
+    }
+  }
+  requestAnimationFrame(advanceFrame);
+}
+
+requestAnimationFrame(advanceFrame);
+</script>
+</body>
+</html>
